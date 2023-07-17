@@ -2,6 +2,7 @@ package com.hmdp.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import com.hmdp.config.RedissonConfig;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.entity.VoucherOrder;
@@ -13,6 +14,8 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdGenerator;
 import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -20,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.concurrent.TimeUnit;
 
 /**
  * <p>
@@ -41,6 +45,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Autowired
     private RedisIdGenerator redisIdGenerator;
 
+    @Autowired
+    private RedissonClient redissonClient;
 
 
     @Override
@@ -68,11 +74,28 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //        if (i != 1) {
 //            return Result.fail("库存更新失败");
 //        }
-        SimpleRedisLock simpleRedisLock = new SimpleRedisLock();
         Long userId = UserHolder.getUser().getId();
-        simpleRedisLock.setName("order:" + userId);
-        Boolean flag = simpleRedisLock.tryLock(10);
-        if (!flag) {
+//        SimpleRedisLock simpleRedisLock = new SimpleRedisLock();
+//        simpleRedisLock.setName("order:" + userId);
+//        Boolean flag = simpleRedisLock.tryLock(10);
+//        if (!flag) {
+//            return Result.fail("不允许重复下单");
+//        }
+//        try {
+//            // 获取代理对象，同一个类中调用加事务的方法事务不会生效
+//            IVoucherOrderService o = (IVoucherOrderService) AopContext.currentProxy();
+//            return o.createVoucherOrder(voucherId);
+//        } finally {
+//            simpleRedisLock.unlock();
+//        }
+        RLock lock = redissonClient.getLock("order:" + userId);
+        boolean flag = false;
+        try {
+            flag = lock.tryLock(1, 10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        if (flag) {
             return Result.fail("不允许重复下单");
         }
         try {
@@ -80,8 +103,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             IVoucherOrderService o = (IVoucherOrderService) AopContext.currentProxy();
             return o.createVoucherOrder(voucherId);
         } finally {
-            simpleRedisLock.unlock();
+            lock.unlock();
         }
+
     }
 
     @Transactional
