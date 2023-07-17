@@ -41,8 +41,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Autowired
     private RedisIdGenerator redisIdGenerator;
 
-    @Autowired
-    private SimpleRedisLock simpleRedisLock;
+
 
     @Override
     public Result create(Long voucherId) {
@@ -62,13 +61,14 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //        seckillVoucher.setVoucherId(voucherId);
 //        seckillVoucher.setStock(seckil.getStock() - 1);
 //        LambdaUpdateWrapper<SeckillVoucher> lambdaUpdateWrapper = new LambdaUpdateWrapper<>();
-//        // CAS 更辛苦存前判断当前库中的库存和该线程查到的库存一样 以确保中间没被人改动过 在更新，否则不更新。
+//        // CAS 更新库存前判断当前库中的库存和该线程查到的库存一样 以确保中间没被人改动过 在更新，否则不更新。
 //        // 更新为库存大于0 即可通过校验 业务上不需要强制库存相等，只需不超卖即可
 //        lambdaUpdateWrapper.eq(SeckillVoucher::getVoucherId, voucherId).gt(SeckillVoucher::getStock, 0);
 //        int i = seckillVoucherMapper.update(seckillVoucher, lambdaUpdateWrapper);
 //        if (i != 1) {
 //            return Result.fail("库存更新失败");
 //        }
+        SimpleRedisLock simpleRedisLock = new SimpleRedisLock();
         Long userId = UserHolder.getUser().getId();
         simpleRedisLock.setName("order:" + userId);
         Boolean flag = simpleRedisLock.tryLock(10);
