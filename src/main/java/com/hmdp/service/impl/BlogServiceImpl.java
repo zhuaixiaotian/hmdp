@@ -7,10 +7,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
+import com.hmdp.entity.Follow;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.BlogMapper;
 import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
@@ -42,6 +44,8 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     @Autowired
     private StringRedisTemplate redisTemplate;
 
+    @Autowired
+    private IFollowService followService;
 
     @Override
     public Result queryBlogById(Long id) {
@@ -107,13 +111,34 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         }
         Set<Long> collect = range.stream().map(Long::valueOf).collect(Collectors.toSet());
         String join = StrUtil.join(",", collect);
-        List<User> users = userService.query().in("id",collect).last("order by field (id," + join + " )").list();
+        List<User> users = userService.query().in("id", collect).last("order by field (id," + join + " )").list();
         List<UserDTO> collect1 = users.stream()
                 .map(user -> BeanUtil.copyProperties(user, UserDTO.class))
                 .collect(Collectors.toList());
         return Result.ok(collect1);
 
         // 数据库中查询
+    }
+
+    @Override
+    public Result saveBlog(Blog blog) {
+        // 获取登录用户
+        UserDTO user = UserHolder.getUser();
+        blog.setUserId(user.getId());
+        // 保存探店博文
+        boolean flag = save(blog);
+        if (flag) {
+            // 查询当前用户粉丝
+            List<Follow> fans = followService.query().eq("follow_user_id", user.getId()).list();
+            for (Follow fan : fans) {
+                // 收件箱为sortedset
+                Long userId = fan.getUserId();
+                String key = "fans:" + userId;
+                redisTemplate.opsForZSet().add(key, blog.getId().toString(), System.currentTimeMillis());
+            }
+        }
+
+        return Result.ok(blog.getId());
     }
 
     private void setUserInfo(Blog blog) {
