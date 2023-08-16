@@ -1,9 +1,9 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.hmdp.dto.PageDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
@@ -18,10 +18,12 @@ import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
 
 import javax.annotation.Resource;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -139,6 +141,46 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         }
 
         return Result.ok(blog.getId());
+    }
+
+    @Override
+    public Result queryBlogOfFollow(Long max, Integer offset) {
+        // 获取收件箱
+        Long id = UserHolder.getUser().getId();
+        String key = "fans:" + id;
+        Set<ZSetOperations.TypedTuple<String>> typedTuples = redisTemplate.opsForZSet()
+                .reverseRangeByScoreWithScores(key, 0, max, offset, 2);
+        if (ObjectUtils.isEmpty(typedTuples)) {
+            return Result.ok();
+        }
+        // 解析数据
+        long maxTime = 0;
+        int i = 1;
+        List<Long> blogIds = new ArrayList<>();
+        for (ZSetOperations.TypedTuple<String> typedTuple : typedTuples) {
+            String value = typedTuple.getValue();
+            blogIds.add(Long.valueOf(value));
+            long time = typedTuple.getScore().longValue();
+            if (time == maxTime) {
+                i++;
+            } else {
+                i = 1;
+                maxTime = time;
+            }
+        }
+        // 查询blog
+        String join = StrUtil.join(",", blogIds);
+        List<Blog> blogs = query().in("id", blogIds).last("order by field (id," + join + " )").list();
+        PageDTO pageDTO = new PageDTO();
+        pageDTO.setList(blogs);
+        blogs.forEach(blog -> {
+            setUserInfo(blog);
+            isLiked(blog);
+        });
+        pageDTO.setOffset(i);
+        pageDTO.setMinTime(maxTime);
+        return Result.ok(pageDTO);
+
     }
 
     private void setUserInfo(Blog blog) {
