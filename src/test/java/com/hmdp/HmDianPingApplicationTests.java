@@ -10,16 +10,16 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.geo.Point;
 import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 import org.springframework.test.context.junit4.SpringRunner;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
+import static com.hmdp.utils.RedisConstants.SHOP_GEO_KEY;
+
 @SpringBootTest
+@RunWith(SpringRunner.class)
 public class HmDianPingApplicationTests {
 
     @Autowired
@@ -46,7 +46,7 @@ public class HmDianPingApplicationTests {
         for (Map.Entry<Long, List<Shop>> entry : collect.entrySet()) {
             Long type = entry.getKey();
             List<Shop> value = entry.getValue();
-            String key = "shop:geo" + type;
+            String key = SHOP_GEO_KEY + type;
             List<RedisGeoCommands.GeoLocation<String>> locations = value.stream()
                     .map(shop -> new RedisGeoCommands.GeoLocation<String>(shop.getId().toString(),
                             new Point(shop.getX(), shop.getY()))).collect(Collectors.toList());
