@@ -1,10 +1,7 @@
 package com.hmdp.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
-import com.hmdp.config.RedissonConfig;
+
 import com.hmdp.dto.Result;
-import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.SeckillVoucherMapper;
 import com.hmdp.mapper.VoucherOrderMapper;
@@ -12,12 +9,8 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdGenerator;
-import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
-import org.apache.catalina.Executor;
-import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -25,10 +18,8 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Date;
+
 import java.util.concurrent.*;
 
 /**
@@ -71,6 +62,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
 //
 //    @Override
+    // 一人一单实现
 //    public Result create(Long voucherId) {
 //        // 秒杀券和券共享id
 //        SeckillVoucher seckil = seckillVoucherService.getById(voucherId);
@@ -83,19 +75,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //        if (stock <= 0) {
 //            return Result.fail("库存不足");
 //        }
-////        // 扣减库存
-////        SeckillVoucher seckillVoucher = new SeckillVoucher();
-////        seckillVoucher.setVoucherId(voucherId);
-////        seckillVoucher.setStock(seckil.getStock() - 1);
-////        LambdaUpdateWrapper<SeckillVoucher> lambdaUpdateWrapper = new LambdaUpdateWrapper<>();
-////        // CAS 更新库存前判断当前库中的库存和该线程查到的库存一样 以确保中间没被人改动过 在更新，否则不更新。
-////        // 更新为库存大于0 即可通过校验 业务上不需要强制库存相等，只需不超卖即可
-////        lambdaUpdateWrapper.eq(SeckillVoucher::getVoucherId, voucherId).gt(SeckillVoucher::getStock, 0);
-////        int i = seckillVoucherMapper.update(seckillVoucher, lambdaUpdateWrapper);
-////        if (i != 1) {
-////            return Result.fail("库存更新失败");
-////        }
 //        Long userId = UserHolder.getUser().getId();
+    // FIXME: 2023/8/31 setnx实现分布式
 ////        SimpleRedisLock simpleRedisLock = new SimpleRedisLock();
 ////        simpleRedisLock.setName("order:" + userId);
 ////        Boolean flag = simpleRedisLock.tryLock(10);
@@ -109,6 +90,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 ////        } finally {
 ////            simpleRedisLock.unlock();
 ////        }
+    //  FIXME: 2023/8/31 redisson实现分布式锁
+
 //        RLock lock = redissonClient.getLock("order:" + userId);
 //        boolean flag = false;
 //        try {
@@ -130,6 +113,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //    }
 
     @Transactional
+
     public Result createVoucherOrder(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
         // 5.1.查询订单
@@ -141,6 +125,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("不允许重复下单");
         }
         // 6.扣减库存
+        // CAS 更新库存前判断当前库中的库存和该线程查到的库存一样 以确保中间没被人改动过 在更新，否则不更新。
+        // 更新为库存大于0 即可通过校验 业务上不需要强制库存相等，只需不超卖即可
         boolean success = seckillVoucherService.update()
                 .setSql("stock = stock - 1") // set stock = stock - 1
                 .eq("voucher_id", voucherId).gt("stock", 0) // where id = ? and stock > 0
@@ -173,8 +159,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         voucherOrder.setId(id);
         voucherOrder.setUserId(UserHolder.getUser().getId());
         voucherOrder.setVoucherId(voucherId);
-        save(voucherOrder);
-
+        blockingDeque.add(voucherOrder);
         return Result.ok(id);
     }
 }
